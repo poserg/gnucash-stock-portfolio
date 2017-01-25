@@ -1,15 +1,17 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-import argparse
+from argparse import ArgumentParser
 import datetime
 import logging
 import requests
+import urllib
 
+from xlrd import open_workbook
 from bs4 import BeautifulSoup
-from gnucash import Session, GncNumeric, ACCT_TYPE_STOCK
-from gnucash_patch import GncPrice
+from gnucash import Session, GncNumeric, GncPrice, ACCT_TYPE_STOCK
 
+from fractions import Fraction
 
 def get_quote_onvista_bond(isin):
     url = 'http://www.onvista.de/anleihen/snapshot.html?ISIN={}'.format(isin)
@@ -32,29 +34,61 @@ def get_quote_onvista_stock(isin):
     return GncNumeric(int(price.replace(',', '')), 1000), currency
 
 
+def get_quote_investfunds(isin):
+    url = "http://pif.investfunds.ru/funds/export_to_excel.php?f2[0]=%s&export=2&export_type=xls&start_day=%s&start_month=%s&start_year=%s&finish_day=%s&finish_month=%s&finish_year=%s&rnd=4064','neww2884'"
+    finish_date = datetime.date.today()
+    start_date = finish_date - datetime.timedelta(days=7)
+    logging.debug('url = %s', url)
+    logging.debug('start_date = %s; finish_date = %s', start_date, finish_date)
+    file_name, headers = urllib.urlretrieve(url % (isin, start_date.day,
+                                                   start_date.month,
+                                                   start_date.year,
+                                                   finish_date.day,
+                                                   finish_date.month,
+                                                   finish_date.year))
+
+    logging.debug('file_name = %s', file_name)
+    logging.debug('headers = %s', headers)
+    wb = open_workbook(file_name)
+    sh = wb.sheet_by_index(0)
+    date = sh.cell_value(rowx=3, colx=0)
+    price = sh.cell_value(rowx=3, colx=1)
+    logging.info('isin: %s, price: %s, date: %s', isin, price, date)
+    return price, date
+
 def update_quote(commodity, book):
     fullname = commodity.get_fullname()
     mnemonic = commodity.get_mnemonic()
     isin = commodity.get_cusip()
-    if len(isin) != 12:
+    if isin is None:
         return
     logging.info('Processing %s (%s, %s)..', fullname, mnemonic, isin)
-    value, currency = None, None
+    price, date = None, None
     try:
-        if commodity.get_namespace() == 'BOND':
-            value, currency = get_quote_onvista_bond(isin)
-        else:
-            value, currency = get_quote_onvista_stock(isin)
+        price, date = get_quote_investfunds(isin)
+        date = datetime.datetime.strptime(date, '%d.%m.%Y')
     except:
         logging.exception('Failed to get quote for %s', isin)
-    if value and currency:
+
+    if price and date:
         table = book.get_table()
-        gnc_currency = table.lookup('ISO4217', currency)
-        p = GncPrice(book)
-        p.set_time(datetime.datetime.now())
-        p.set_commodity(commodity)
-        p.set_currency(gnc_currency)
-        p.set_value(value)
+        gnc_commodity = table.lookup('FUND', mnemonic)
+        gnc_currency = table.lookup('CURRENCY', 'RUB')
+
+        pricedb = book.get_price_db()
+        pl = pricedb.get_prices(gnc_commodity, gnc_currency)
+        if len(pl) < 1:
+            logging.exception('Need price entry in DB')
+            return
+
+        p = pl[0].clone(book)
+        p = GncPrice(instance = p)
+        p.set_time(date)
+        v = p.get_value()
+        v.num = int(Fraction.from_float(float(price)).limit_denominator(100000).numerator)
+        v.denom = int(Fraction.from_float(float(price)).limit_denominator(100000).denominator)
+        p.set_value(v)
+
         book.get_price_db().add_price(p)
 
 
@@ -63,7 +97,7 @@ def update_quotes(s, args):
     table = book.get_table()
     for namespace in table.get_namespaces_list():
         name = namespace.get_name()
-        if name != 'CURRENCY':
+        if name == 'FUND':
             for commodity in namespace.get_commodity_list():
                 update_quote(commodity, book)
     if not args.dry_run:
@@ -88,29 +122,30 @@ def report(s, args):
                 print GncNumeric(instance=inst).to_string()
 
 
-def add_commodity(s, args):
-    raise NotImplementedError()
+def parse_arguments():
+    parser = ArgumentParser(description=__doc__)
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument('-v', '--verbose', help='Verbose (debug) logging', action='store_const', const=logging.DEBUG,
+                       dest='loglevel')
+    group.add_argument('-q', '--quiet', help='Silent mode, only log warnings', action='store_const',
+                       const=logging.WARN, dest='loglevel')
+    parser.add_argument('--dry-run', help='Noop, do not write anything', action='store_true')
+    parser.add_argument('-isin', nargs='?', help='Mutual fund isin')
+    parser.add_argument('book', help='gnucash file')
 
+    args = parser.parse_args()
+    return args
 
-parser = argparse.ArgumentParser()
-parser.add_argument('gnucash_file')
-parser.add_argument('--dry-run', action='store_true', help='Do not write anything, noop-mode')
-subparsers = parser.add_subparsers()
-sp = subparsers.add_parser('update-quotes', help='Update stock quotes from online service')
-sp.set_defaults(func=update_quotes)
-sp = subparsers.add_parser('report', help='Print portfolio report')
-sp.set_defaults(func=report)
-sp = subparsers.add_parser('add-commodity', help='Helper method to add commodity by ISIN')
-sp.add_argument('isin', help='ISIN of stock/bond to add')
-sp.set_defaults(func=add_commodity)
+if __name__ == "__main__":
+    args = parse_arguments()
+    logging.basicConfig(level=args.loglevel or logging.INFO)
+    logging.debug(args)
 
-args = parser.parse_args()
+    if args.isin:
+        price, date = get_quote_investfunds(args.isin)
 
-logging.basicConfig(level=logging.INFO)
-logging.getLogger('urllib3').setLevel(logging.WARN)
-
-s = Session(args.gnucash_file)
-try:
-    args.func(s, args)
-finally:
-    s.end()
+    s = Session(args.book)
+    try:
+        update_quotes(s, args)
+    finally:
+        s.end()
