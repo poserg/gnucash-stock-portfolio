@@ -5,75 +5,30 @@ from argparse import ArgumentParser
 import datetime
 import logging
 import requests
-import urllib
 
-from xlrd import open_workbook
 from bs4 import BeautifulSoup
 from gnucash import Session, GncNumeric, GncPrice, ACCT_TYPE_STOCK
 
 from fractions import Fraction
 
-def get_quote_onvista_bond(isin):
-    url = 'http://www.onvista.de/anleihen/snapshot.html?ISIN={}'.format(isin)
-    r = requests.get(url)
-    soup = BeautifulSoup(r.text)
-    price = soup.select('.INHALT #KURSINFORMATIONEN ~ .t span:nth-of-type(2)')[0].get_text()
-    currency = 'EUR'
-    logging.info('Got quote for %s: %s%%', isin, price)
-    return GncNumeric(int(price.replace(',', '')), 100 * 100), currency
+from get_quote_strategies.investfunds import InvestfundsStrategy
+from get_quote_strategies.bitfinex_strategy import BitfinexStrategy
 
+get_quote_strategies = [InvestfundsStrategy(), BitfinexStrategy()]
 
-def get_quote_onvista_stock(isin):
-    url = 'http://www.onvista.de/suche/?searchValue={}'.format(isin)
-    r = requests.get(url)
-    soup = BeautifulSoup(r.text)
-    spans = soup.select('.INHALT ul.KURSDATEN li:nth-of-type(1) span')
-    price = spans[0].get_text()
-    currency = str(spans[1].get_text())
-    logging.info('Got quote for %s: %s %s', isin, price, currency)
-    return GncNumeric(int(price.replace(',', '')), 1000), currency
-
-
-def get_quote_investfunds(isin):
-    url = "http://pif.investfunds.ru/funds/export_to_excel.php?f2[0]=%s&export=2&export_type=xls&start_day=%s&start_month=%s&start_year=%s&finish_day=%s&finish_month=%s&finish_year=%s&rnd=4064','neww2884'"
-    finish_date = datetime.date.today()
-    start_date = finish_date - datetime.timedelta(days=7)
-    logging.debug('url = %s', url)
-    logging.debug('start_date = %s; finish_date = %s', start_date, finish_date)
-    file_name, headers = urllib.urlretrieve(url % (isin, start_date.day,
-                                                   start_date.month,
-                                                   start_date.year,
-                                                   finish_date.day,
-                                                   finish_date.month,
-                                                   finish_date.year))
-
-    logging.debug('file_name = %s', file_name)
-    logging.debug('headers = %s', headers)
-    wb = open_workbook(file_name)
-    sh = wb.sheet_by_index(0)
-    date = sh.cell_value(rowx=3, colx=0)
-    price = sh.cell_value(rowx=3, colx=1)
-    logging.info('isin: %s, price: %s, date: %s', isin, price, date)
-    return price, date
-
-def update_quote(commodity, book):
+def update_quote(commodity, book, get_quote_strategy):
     fullname = commodity.get_fullname()
     mnemonic = commodity.get_mnemonic()
     isin = commodity.get_cusip()
     if isin is None:
         return
     logging.info('Processing %s (%s, %s)..', fullname, mnemonic, isin)
-    price, date = None, None
-    try:
-        price, date = get_quote_investfunds(isin)
-        date = datetime.datetime.strptime(date, '%d.%m.%Y')
-    except:
-        logging.exception('Failed to get quote for %s', isin)
+    price, date = get_quote_strategy.get_quotes(isin)
 
     if price and date:
         table = book.get_table()
-        gnc_commodity = table.lookup('FUND', mnemonic)
-        gnc_currency = table.lookup('CURRENCY', 'RUB')
+        gnc_commodity = table.lookup(get_quote_strategy.get_table_name(), mnemonic)
+        gnc_currency = table.lookup('CURRENCY', get_quote_strategy.get_currency_code())
 
         pricedb = book.get_price_db()
         pl = pricedb.get_prices(gnc_commodity, gnc_currency)
@@ -97,9 +52,10 @@ def update_quotes(s, args):
     table = book.get_table()
     for namespace in table.get_namespaces_list():
         name = namespace.get_name()
-        if name == 'FUND':
-            for commodity in namespace.get_commodity_list():
-                update_quote(commodity, book)
+        for commodity in namespace.get_commodity_list():
+            for strategy in get_quote_strategies:
+                if name == strategy.get_table_name():
+                    update_quote(commodity, book, strategy)
     if not args.dry_run:
         s.save()
 
