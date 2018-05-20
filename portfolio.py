@@ -2,11 +2,8 @@
 # -*- coding: utf-8 -*-
 
 from argparse import ArgumentParser
-import datetime
 import logging
-import requests
 
-from bs4 import BeautifulSoup
 from gnucash import Session, GncNumeric, GncPrice, ACCT_TYPE_STOCK
 
 from fractions import Fraction
@@ -24,6 +21,7 @@ def update_quote(commodity, book, get_quote_strategy):
         return
     logging.info('Processing %s (%s, %s)..', fullname, mnemonic, isin)
     price, date = get_quote_strategy.get_quotes(isin)
+    logging.info('New price: %s, price: %s, date: %s', mnemonic, price, date)
 
     if price and date:
         table = book.get_table()
@@ -35,6 +33,10 @@ def update_quote(commodity, book, get_quote_strategy):
         if len(pl) < 1:
             logging.exception('Need price entry in DB')
             return
+        else:
+            v = pl[0].get_value()
+            last_price = 1.0*v.num/v.denom
+            logging.info('Last price: %f', last_price)
 
         p = pl[0].clone(book)
         p = GncPrice(instance = p)
@@ -56,6 +58,7 @@ def update_quotes(s, args):
             for strategy in get_quote_strategies:
                 if name == strategy.get_table_name():
                     update_quote(commodity, book, strategy)
+                    break
     if not args.dry_run:
         s.save()
 

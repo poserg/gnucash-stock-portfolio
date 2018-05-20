@@ -4,7 +4,7 @@ from get_quote_strategies.base import *
 from bitfinex.client import Client
 
 class BitfinexStrategy(GetQuoteStrategyBase):
-    
+
     def get_quotes(self, isin):
         price, date = None, None
         try:
