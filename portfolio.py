@@ -11,6 +11,8 @@ from fractions import Fraction
 from get_quote_strategies.investfunds import InvestfundsStrategy
 from get_quote_strategies.bitfinex_strategy import BitfinexStrategy
 
+from statistics import get_delta, show_delta
+
 get_quote_strategies = [InvestfundsStrategy(), BitfinexStrategy()]
 
 def update_quote(commodity, book, get_quote_strategy):
@@ -19,6 +21,7 @@ def update_quote(commodity, book, get_quote_strategy):
     isin = commodity.get_cusip()
     if isin is None:
         return
+    logging.info('')
     logging.info('Processing %s (%s, %s)..', fullname, mnemonic, isin)
     price, date = get_quote_strategy.get_quotes(isin)
     logging.info('New price: %s, price: %s, date: %s', mnemonic, price, date)
@@ -37,6 +40,7 @@ def update_quote(commodity, book, get_quote_strategy):
             v = pl[0].get_value()
             last_price = 1.0*v.num/v.denom
             logging.info('Last price: %f', last_price)
+            show_delta(get_delta(last_price, price))
 
         p = pl[0].clone(book)
         p = GncPrice(instance = p)
@@ -47,7 +51,6 @@ def update_quote(commodity, book, get_quote_strategy):
         p.set_value(v)
 
         book.get_price_db().add_price(p)
-
 
 def update_quotes(s, args):
     book = s.book
