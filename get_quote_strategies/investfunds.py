@@ -2,7 +2,7 @@
 
 from get_quote_strategies.base import *
 import xlrd
-import urllib
+import urllib.request, urllib.parse, urllib.error
 
 class InvestfundsStrategy(GetQuoteStrategyBase):
 
@@ -13,7 +13,7 @@ class InvestfundsStrategy(GetQuoteStrategyBase):
         start_date = finish_date - datetime.timedelta(days=14)
         logging.debug('url = %s', url)
         logging.debug('start_date = %s; finish_date = %s', start_date.strftime(dateformat), finish_date.strftime(dateformat))
-        file_name, headers = urllib.urlretrieve(url % (isin,
+        file_name, headers = urllib.request.urlretrieve(url % (isin,
                                                        start_date.strftime(dateformat),
                                                        finish_date.strftime(dateformat),
                                                        isin))

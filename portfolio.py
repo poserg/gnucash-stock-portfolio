@@ -79,9 +79,9 @@ def report(s, args):
             commodity = acc.GetCommodity()
             namespace = commodity.get_namespace()
             if namespace != 'CURRENCY':
-                print commodity.get_fullname(), commodity.get_cusip(), acc.GetBalance()
+                print(commodity.get_fullname(), commodity.get_cusip(), acc.GetBalance())
                 inst = pricedb.lookup_latest(commodity, currency).get_value()
-                print GncNumeric(instance=inst).to_string()
+                print(GncNumeric(instance=inst).to_string())
 
 
 def parse_arguments():

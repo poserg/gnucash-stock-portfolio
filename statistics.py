@@ -23,4 +23,4 @@ def show_delta(delta):
         c = 'green'
     elif delta[0] < 0:
         c = 'red'
-    print 'delta: ' + colored('%s (%s)' % (abs_delta_s, delta_s), c)
+    print('delta: ' + colored('%s (%s)' % (abs_delta_s, delta_s), c))
