@@ -8,15 +8,15 @@ class InvestfundsStrategy(GetQuoteStrategyBase):
 
     def _get_quote_investfunds(self, isin):
         dateformat = '%d.%m.%Y'
-        url = "https://investfunds.ru/funds/%s/?date_start=%s&date_end=%s&fund_id=%s&file_name=report&action=excelSave"
+        template_url = "https://investfunds.ru/funds/%s/?date_start=%s&date_end=%s&fund_id=%s&file_name=report&action=excelSave"
         finish_date = datetime.date.today()
         start_date = finish_date - datetime.timedelta(days=14)
+        url = template_url % (isin,
+                              start_date.strftime(dateformat),
+                              finish_date.strftime(dateformat),
+                              isin)
         logging.debug('url = %s', url)
-        logging.debug('start_date = %s; finish_date = %s', start_date.strftime(dateformat), finish_date.strftime(dateformat))
-        file_name, headers = urllib.request.urlretrieve(url % (isin,
-                                                       start_date.strftime(dateformat),
-                                                       finish_date.strftime(dateformat),
-                                                       isin))
+        file_name, headers = urllib.request.urlretrieve(url)
 
         logging.debug('file_name = %s', file_name)
         logging.debug('headers = %s', headers)
@@ -33,7 +33,6 @@ class InvestfundsStrategy(GetQuoteStrategyBase):
             price, date = self._get_quote_investfunds(isin)
         except:
             logging.exception('Failed to get quote for %s', isin)
-            raise
 
         return price, date
 

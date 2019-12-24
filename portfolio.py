@@ -44,7 +44,7 @@ def update_quote(commodity, book, get_quote_strategy):
 
         p = pl[0].clone(book)
         p = GncPrice(instance = p)
-        p.set_time(date)
+        p.set_time64(date)
         v = p.get_value()
         v.num = int(Fraction.from_float(float(price)).limit_denominator(100000).numerator)
         v.denom = int(Fraction.from_float(float(price)).limit_denominator(100000).denominator)
